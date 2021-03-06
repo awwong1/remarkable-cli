@@ -6,7 +6,7 @@ setup(
     name="remarkable-cli",
     version=__version__,
     author="Alexander Wong",
-    author_email="alex@udia,ca",
+    author_email="alex@udia.ca",
     description="An unofficial CLI for interacting with the Remarkable tablet.",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
