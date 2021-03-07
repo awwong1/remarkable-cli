@@ -32,7 +32,7 @@ def main():
         help="backup actions to perform on reMarkable tablet",
         action="append",
         type=str,
-        choices=["push", "pull", "clean-local"],
+        choices=["push", "pull", "pull-raw", "pull-web", "clean-local"],
     )
 
     device_group = parser.add_argument_group("reMarkable device")

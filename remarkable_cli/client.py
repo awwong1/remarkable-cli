@@ -88,6 +88,11 @@ class Client:
                 self.connect()
                 self.pull_xochitl_files()
                 self.pull_pdf_files()
+            elif action == "pull-raw":
+                self.connect()
+                self.pull_xochitl_files()
+            elif action == "pull-web":
+                self.pull_pdf_files()
             elif action == "clean-local":
                 self.clean_local()
             else:
@@ -153,14 +158,14 @@ class Client:
 
                 if os.path.isfile(local_fp):
                     local_stat = os.stat(local_fp)
-                    if local_stat.st_mtime <= pf_attr.st_mtime:
+                    if local_stat.st_mtime >= pf_attr.st_mtime:
                         self._log.debug("skipping file %s", pull_file)
                         continue
 
                 self._log.info("copying file %s", pull_file)
                 self._log.debug(pf_attr)
-                self._log.debug(pf_attr.st_atime)
-                self._log.debug(pf_attr.st_mtime)
+                self._log.debug("remote stat access time", pf_attr.st_atime)
+                self._log.debug("remote stat modified time", pf_attr.st_mtime)
                 self._log.debug("remote_fp: %s", remote_fp)
                 self._log.debug("local_fp: %s", local_fp)
                 self._log.debug("local_dir: %s", local_dir)
@@ -221,6 +226,9 @@ class Client:
         os.makedirs(self.trash_backup_dir, exist_ok=True)
         metadata = self._derive_metadata()
 
+        counter_ok = 0
+        counter_total = 0
+
         with Session() as session:
             adapter = adapters.HTTPAdapter(max_retries=0)
             session.mount("http://", adapter)
@@ -232,7 +240,7 @@ class Client:
 
                 local_dir = self.trash_backup_dir if is_trash else self.pdf_backup_dir
                 meta_type = meta.get("type")
-                meta_deleted = meta.get('deleted', False)
+                meta_deleted = meta.get("deleted", False)
 
                 if meta_deleted:
                     continue
@@ -260,9 +268,12 @@ class Client:
                         with open(path, "wb") as fh:
                             fh.write(res.content)
                         os.utime(path, (last_modified, last_modified))
+                        counter_ok += 1
                     except Exception:
                         self._log.warning("skipping %s", rel_fp)
                         continue
+                    finally:
+                        counter_total += 1
 
                 elif meta_type == "CollectionType":
                     # is a folder, ensure exists and continue
@@ -272,3 +283,10 @@ class Client:
                         "entity %s has unsupported type: %s", meta_id, meta_type
                     )
                     continue
+
+        self._log.info(
+            "pulled %d/%d pdf files to %s",
+            counter_ok,
+            counter_total,
+            self.args.backup_dir,
+        )

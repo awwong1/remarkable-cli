@@ -18,7 +18,7 @@ pip install remarkable-cli
 # With INFO logging, clean the local backup directory before pulling raw xochitl and pdf files
 remarkable-cli -a clean-local -a pull
 
-# with DEBUG logging, ull the raw xochitl and pdf files
+# with DEBUG logging, pull all the raw xochitl and pdf files
 remarkable-cli -vvvv -a pull
 ```
 
