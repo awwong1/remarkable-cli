@@ -21,8 +21,9 @@ def main():
     parser.add_argument(
         "-v",
         "--verbose",
-        help="logging verbosity level",
+        dest="log_level",
         action="count",
+        help="logging verbosity level",
         default=3,
     )
     parser.add_argument(

@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-import os
 import logging
+import os
 from collections import deque
+from glob import glob
 from shutil import rmtree
 from stat import S_ISDIR, S_ISREG
+import json
+from requests import Request, Session, adapters
 
 import paramiko
 
 
 class Client:
+    LOG_LEVELS = ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"]
+
     def __init__(self, args):
         log_format = "%(asctime)s [%(levelname)s]: %(message)s"
-        logging.basicConfig(format=log_format, level=logging.INFO)
-        # logging.basicConfig(format=log_format, level=logging.DEBUG)
+        log_level = Client.LOG_LEVELS[min(args.log_level, len(Client.LOG_LEVELS) - 1)]
+        logging.basicConfig(format=log_format, level=logging.getLevelName(log_level))
 
         self._log = logging.getLogger(__name__)
         self.args = args
@@ -20,11 +25,13 @@ class Client:
 
         # create the backup directory if not exists
         os.makedirs(self.args.backup_dir, exist_ok=True)
-        self.raw_backup = os.path.join(self.args.backup_dir, ".raw")
-        os.makedirs(self.raw_backup, exist_ok=True)
+        self.raw_backup_dir = os.path.join(self.args.backup_dir, ".raw")
+        self.pdf_backup_dir = os.path.join(self.args.backup_dir, "My files")
+        self.trash_backup_dir = os.path.join(self.args.backup_dir, "Trash")
 
     @staticmethod
     def sftp_walk(ftp_client, remote_path, sub_dirs=()):
+        """Walk through the remote reMarkable directory structure"""
         for file_attr in ftp_client.listdir_attr(os.path.join(remote_path, *sub_dirs)):
             if S_ISDIR(file_attr.st_mode):
                 # directory, recurse into the folder
@@ -40,6 +47,28 @@ class Client:
                 # unsupported file type
                 continue
 
+    @staticmethod
+    def _get_path(meta_id, metadata, dir_hierarchy=[]):
+        """Get the entity relative path"""
+        meta = metadata.get(meta_id)
+        if meta is None:
+            raise RuntimeError(f"meta_id: {meta_id} does not exist")
+        visible_name = meta.get("visibleName")
+
+        parent_id = meta.get("parent")
+        is_trash = False
+        if parent_id == "trash":
+            is_trash = True
+        elif parent_id:
+            nested_dir_hierarchy = deque(dir_hierarchy)
+            nested_dir_hierarchy.appendleft(visible_name)
+            return Client._get_path(
+                parent_id, metadata, dir_hierarchy=nested_dir_hierarchy
+            )
+
+        basename = os.path.join(visible_name, *dir_hierarchy)
+        return basename, is_trash
+
     def run_actions(self):
         """Run all of the specified actions (push, pull)"""
         # dedupe the list of actions
@@ -54,9 +83,11 @@ class Client:
 
             if action == "push":
                 self.connect()
+                self._log.warning("not implemented")
             elif action == "pull":
                 self.connect()
-                self.pull_files()
+                self.pull_xochitl_files()
+                self.pull_pdf_files()
             elif action == "clean-local":
                 self.clean_local()
             else:
@@ -97,14 +128,18 @@ class Client:
             self.ssh_client = None
 
     def clean_local(self):
-        if os.path.exists(self.raw_backup) and os.path.isdir(self.raw_backup):
-            self._log.info("removing local directory %s", self.raw_backup)
-            rmtree(self.raw_backup)
+        """Remove the local xochitl and pdf backup directories if exists."""
+        backup_dirs = [self.raw_backup_dir, self.pdf_backup_dir, self.trash_backup_dir]
+        for backup_dir in backup_dirs:
+            if os.path.exists(backup_dir) and os.path.isdir(backup_dir):
+                self._log.info("removing local directory %s", backup_dir)
+                rmtree(backup_dir)
 
-    def pull_files(self):
+    def pull_xochitl_files(self):
         """Copy files from remote xochitl directory to local raw backup directory.
         Keep the access and modified times of the file specified.
         """
+        os.makedirs(self.raw_backup_dir, exist_ok=True)
         ftp_client = None
         try:
             counter = 0
@@ -112,7 +147,7 @@ class Client:
             for pf_attr, pull_file in Client.sftp_walk(ftp_client, self.args.file_path):
                 counter += 1
                 remote_fp = os.path.join(self.args.file_path, pull_file)
-                local_fp = os.path.join(self.raw_backup, pull_file)
+                local_fp = os.path.join(self.raw_backup_dir, pull_file)
                 local_dir = os.path.dirname(local_fp)
                 os.makedirs(local_dir, exist_ok=True)
 
@@ -132,10 +167,108 @@ class Client:
 
                 ftp_client.get(remote_fp, local_fp)
                 os.utime(local_fp, (pf_attr.st_atime, pf_attr.st_mtime))
-            self._log.info("copied %d files to %s", counter, self.raw_backup)
+            self._log.info("pulled %d files to %s", counter, self.raw_backup_dir)
         except Exception:
             self._log.error("could not pull files")
             raise
         finally:
             if ftp_client:
                 ftp_client.close()
+
+    def _derive_metadata(self):
+        metadata = {}
+        # get the xochitl metadata into memory from disk
+        meta_fps = glob(os.path.join(self.raw_backup_dir, "*.metadata"))
+        for meta_fp in meta_fps:
+            with open(meta_fp, "r") as fh:
+                meta = json.load(fh)
+            meta_id = os.path.splitext(os.path.basename(meta_fp))[0]
+            metadata[meta_id] = meta
+        return metadata
+
+    def _request_file_entity(self, session, url, timeout=(9.03, 30.03)):
+        headers = {
+            "Host": self.args.destination,
+            "Accept": (
+                "text/html,application/xhtml+xml,"
+                + "application/xml;q=0.9,image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "en-CA,en-US;q=0.7,en;q=0.3",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Referer": f"http://{self.args.destination}/",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-GPC": "1",
+        }
+        try:
+            req = Request("GET", url, headers=headers)
+            prepped = session.prepare_request(req)
+            self._log.debug("GET %s", url)
+            res = session.send(prepped, timeout=timeout)
+
+            if res.status_code != 200:
+                raise ConnectionError(f"failed to GET {url}")
+            return res
+        except Exception:
+            self._log.warning("failed to GET %s", url)
+            raise
+
+    def pull_pdf_files(self):
+        """Use the web interface to download pdfs.
+        This should really be a conversion of the local xochitl files instead."""
+        os.makedirs(self.pdf_backup_dir, exist_ok=True)
+        os.makedirs(self.trash_backup_dir, exist_ok=True)
+        metadata = self._derive_metadata()
+
+        with Session() as session:
+            adapter = adapters.HTTPAdapter(max_retries=0)
+            session.mount("http://", adapter)
+
+            for meta_id, meta in metadata.items():
+                path, is_trash = Client._get_path(meta_id, metadata)
+                self._log.debug(path)
+                self._log.debug(meta)
+
+                local_dir = self.trash_backup_dir if is_trash else self.pdf_backup_dir
+                meta_type = meta.get("type")
+                meta_deleted = meta.get('deleted', False)
+
+                if meta_deleted:
+                    continue
+
+                if meta_type == "DocumentType":
+                    # is file, download as a PDF
+                    rel_fp = f"{path}{os.path.extsep}pdf"
+                    path = os.path.join(local_dir, rel_fp)
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+                    # if local file exists and has up-to-date modified time, ignore
+                    last_modified = int(meta.get("lastModified", "0"))
+                    if os.path.isfile(path):
+                        local_stat = os.stat(path)
+                        if local_stat.st_mtime >= last_modified:
+                            self._log.debug("skipping %s", rel_fp)
+                            continue
+
+                    self._log.info("retrieving %s", rel_fp)
+                    url = (
+                        f"http://{self.args.destination}/download/{meta_id}/placeholder"
+                    )
+                    try:
+                        res = self._request_file_entity(session, url)
+                        with open(path, "wb") as fh:
+                            fh.write(res.content)
+                        os.utime(path, (last_modified, last_modified))
+                    except Exception:
+                        self._log.warning("skipping %s", rel_fp)
+                        continue
+
+                elif meta_type == "CollectionType":
+                    # is a folder, ensure exists and continue
+                    os.makedirs(os.path.join(local_dir, path), exist_ok=True)
+                else:
+                    self._log.warning(
+                        "entity %s has unsupported type: %s", meta_id, meta_type
+                    )
+                    continue
