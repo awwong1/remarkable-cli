@@ -196,8 +196,7 @@ class Client:
         self._pull_sftp_files(self.args.file_path, self.raw_backup_dir)
 
     def pull_template_files(self):
-        """Copy files from remote templates directory to local templates directory.
-        """
+        """Copy files from remote templates directory to local templates directory."""
         os.makedirs(self.templates_dir, exist_ok=True)
         self._pull_sftp_files(self.args.templates_path, self.templates_dir)
 
@@ -317,5 +316,5 @@ class Client:
         for meta_fp in meta_fps:
             uuid_fp = os.path.splitext(meta_fp)[0]
             if os.path.isdir(uuid_fp):
-                converter = ConvertRM(uuid_fp, self._log)
+                converter = ConvertRM(uuid_fp, self.templates_dir, logger=self._log)
                 converter.convert_document()

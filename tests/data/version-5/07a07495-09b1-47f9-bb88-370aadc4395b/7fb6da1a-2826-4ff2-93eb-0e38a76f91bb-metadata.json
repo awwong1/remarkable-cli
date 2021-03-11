@@ -1,6 +1,9 @@
 {
     "layers": [
         {
+            "name": "Layer 2"
+        },
+        {
             "name": "Layer 1"
         }
     ]

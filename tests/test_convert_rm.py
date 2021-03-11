@@ -22,7 +22,8 @@ class TestConvertRM(unittest.TestCase):
         self.converter = ConvertRM(
             os.path.join(
                 DIR_PATH, "data", "version-5", "07a07495-09b1-47f9-bb88-370aadc4395b"
-            )
+            ),
+            os.path.join(DIR_PATH, "data", "templates"),
         )
 
     def test_initialization(self):
@@ -32,6 +33,7 @@ class TestConvertRM(unittest.TestCase):
             os.path.join(
                 DIR_PATH, "data", "version-5", "00000000-0000-0000-0000-000000000000"
             ),
+            os.path.join(DIR_PATH, "data", "templates"),
         )
         self.assertIsInstance(self.converter, ConvertRM)
 

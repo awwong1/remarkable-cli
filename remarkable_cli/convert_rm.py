@@ -5,9 +5,23 @@ import json
 import logging
 import os
 import re
-import struct
 import xml.etree.ElementTree as ET
 from io import BufferedReader
+from struct import calcsize, unpack_from
+
+from .pens import (
+    Pen,
+    Ballpoint,
+    Fineliner,
+    Marker,
+    Pencil,
+    MechanicalPencil,
+    Brush,
+    Highlighter,
+    Calligraphy,
+    EraseArea,
+    Eraser,
+)
 
 
 class ConvertRM:
@@ -22,7 +36,12 @@ class ConvertRM:
         2: "white",
     }
 
-    def __init__(self, entity_path: os.PathLike, logger: logging.Logger = None):
+    def __init__(
+        self,
+        entity_path: os.PathLike,
+        local_templates_path: str,
+        logger: logging.Logger = None,
+    ):
         """
         entity_path should be:
         - path to {uuid}.(content|metadata), without extension.
@@ -38,6 +57,7 @@ class ConvertRM:
             self._log.error("not found: %s", entity_path)
             raise FileNotFoundError(entity_path)
         self.pages_fp = entity_path
+        self.templates_fp = local_templates_path
 
         # Document info
         self.content_fp = f"{entity_path}{os.extsep}content"
@@ -59,10 +79,10 @@ class ConvertRM:
                 with open(pg_meta_fp, "r") as fh:
                     self.pages_metadata[page_id] = json.load(fh)
 
-    def _convert_rm_to_svg(self, fh: BufferedReader):
+    def _convert_rm_to_svg(self, fh: BufferedReader, template_tree: ET.ElementTree):
         raw_header_template = "reMarkable .lines file, version=#          "
         fmt = f"<{len(raw_header_template)}sI"
-        header, num_layers = struct.unpack_from(fmt, fh.read(struct.calcsize(fmt)))
+        header, num_layers = unpack_from(fmt, fh.read(calcsize(fmt)))
 
         # Verify header with byte regular expression
         header_regex = rb"^reMarkable .lines file, version=(?P<version>\d)          $"
@@ -72,71 +92,108 @@ class ConvertRM:
             raise RuntimeError("invalid lines header provided")
 
         # determine stroke format using version number
-        stroke_fmt = "<IIIfII"
+        stroke_fmt = "<IIIfII"  # Version 5
         if int(version) < 5:
-            stroke_fmt = "<IIIfI"
+            stroke_fmt = "<IIIfI"  # Version 3 (anything pre 5)
 
-        svg_root = ET.Element(
-            "svg",
-            {
-                "xmlns": "http://www.w3.org/2000/svg",
-                "xmlns:xlink": "http://www.w3.org/1999/xlink",
-                "version": "1.1",
-                "x": "0px",
-                "y": "0px",
-                "viewBox": f"0 0 {ConvertRM.X_SIZE} {ConvertRM.Y_SIZE}",
-            },
-        )
+        svg_root = template_tree.getroot()
 
-        # self._log.debug(header)
-        # self._log.debug("num_layers: %d", num_layers)
-        for layer in range(num_layers):
+        for layer_idx in range(num_layers):
             fmt = "<I"
-            (num_strokes,) = struct.unpack_from(fmt, fh.read(struct.calcsize(fmt)))
+            (num_strokes,) = unpack_from(fmt, fh.read(calcsize(fmt)))
 
             svg_layer = ET.Element("g")
 
-            # self._log.debug("num_strokes: %d", num_strokes)
-            for stroke in range(num_strokes):
-                fmt = stroke_fmt
-                stroke_data = struct.unpack_from(fmt, fh.read(struct.calcsize(fmt)))
+            for stroke_idx in range(num_strokes):
+                stroke_data = unpack_from(stroke_fmt, fh.read(calcsize(stroke_fmt)))
 
-                pen, colour_idx, i_unk, width = stroke_data[:4]
+                pen_idx, colour_idx, i_unk, stroke_width = stroke_data[:4]
                 num_segments = stroke_data[-1]
-
-                if colour_idx != 0:
-                    self._log.info(colour_idx)
                 stroke_color = ConvertRM.STROKE_COLOUR.get(colour_idx, "black")
 
-                svg_polyline = ET.Element(
-                    "polyline",
-                    {"style": f"fill:none;stroke:{stroke_color};stroke-width:{width}"},
-                )
-                line_points = []
+                if pen_idx in (2, 15):
+                    pen = Ballpoint(stroke_width, stroke_color)
+                elif pen_idx in (4, 17):
+                    pen = Fineliner(stroke_width, stroke_color)
+                elif pen_idx in (3, 16):
+                    pen = Marker(stroke_width, stroke_color)
+                elif pen_idx in (1, 14):
+                    pen = Pencil(stroke_width)
+                elif pen_idx in (7, 13):
+                    pen = MechanicalPencil(stroke_width)
+                elif pen_idx in (0, 12):
+                    pen = Brush(stroke_width, stroke_color)
+                elif pen_idx in (5, 18):
+                    pen = Highlighter()
+                elif pen_idx in (21,):
+                    pen = Calligraphy(stroke_width, stroke_color)
+                elif pen_idx in (8,):
+                    pen = EraseArea()
+                elif pen_idx in (6,):
+                    pen = Eraser(stroke_width)
+                else:
+                    self._log.warning("unknown pen type %d", pen_idx)
+                    pen = Pen()
 
+                line_points = []
                 # self._log.debug("stroke_data: %s", stroke_data)
-                for segment in range(num_segments):
+                for segment_idx in range(num_segments):
                     fmt = "<ffffff"
-                    data = fh.read(struct.calcsize(fmt))
-                    segment = struct.unpack_from(fmt, data)
-                    xpos, ypos, pressure, tilt, i_unk2, j_unk2 = segment
+                    segment = unpack_from(fmt, fh.read(calcsize(fmt)))
+                    xpos, ypos, speed, tilt, width, pressure = segment
                     line_points.append(f"{xpos},{ypos}")
 
-                svg_polyline.set("points", " ".join(line_points))
+                attrs = pen.get_polyline_attributes(*segment[2:])
+                attrs["points"] = " ".join(line_points)
+                svg_polyline = ET.Element("polyline", attrs)
+                svg_polyline.append(ET.Comment(f"Stroke: {stroke_data}"))
                 svg_layer.append(svg_polyline)
+                line_points = [
+                    f"{xpos},{ypos}",
+                ]
+
             svg_root.append(svg_layer)
         # self._log.debug(ET.tostring(svg_root))
-        return svg_root
+        return template_tree
 
     def convert_document(self):
         # each page is its own svg element, a document can have multiple pages
-        for page_id in self.page_ids:
+        for idx, page_id in enumerate(self.page_ids):
             pg_rm_fp = os.path.join(self.pages_fp, f"{page_id}{os.extsep}rm")
             if not os.path.isfile(pg_rm_fp):
                 self._log.debug(f"skipping {pg_rm_fp}")
                 continue
+
+            template_filename = self.pagedata[idx]
+            template_svg_fp = os.path.join(
+                self.templates_fp, f"{template_filename}{os.extsep}svg"
+            )
+
+            ET.register_namespace("", "http://www.w3.org/2000/svg")
+
+            svg_root = ET.Element(
+                "svg",
+                {
+                    "xmlns": "http://www.w3.org/2000/svg",
+                    "xmlns:xlink": "http://www.w3.org/1999/xlink",
+                    "version": "1.1",
+                    "x": "0px",
+                    "y": "0px",
+                    "viewBox": f"0 0 {ConvertRM.X_SIZE} {ConvertRM.Y_SIZE}",
+                },
+            )
+            template_tree = ET.ElementTree(svg_root)
+            if template_filename == "Blank":
+                self._log.debug("overriding Blank template with clean svg root")
+            elif os.path.isfile(template_svg_fp):
+                template_tree = ET.parse(template_svg_fp)
+            else:
+                self._log.warning(
+                    "template %s not found at %s", template_filename, template_svg_fp
+                )
+
             with open(pg_rm_fp, "rb") as fh:
-                svg_root = self._convert_rm_to_svg(fh)
+                template_tree = self._convert_rm_to_svg(fh, template_tree)
 
             os.makedirs(
                 os.path.join(
@@ -151,4 +208,4 @@ class ConvertRM:
                 "dump",
                 f"{page_id}{os.extsep}svg",
             )
-            ET.ElementTree(svg_root).write(svg_test_fp)
+            template_tree.write(svg_test_fp)
