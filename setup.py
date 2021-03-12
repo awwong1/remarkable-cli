@@ -23,5 +23,5 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
     ],
     entry_points={"console_scripts": ["remarkable-cli=remarkable_cli:main"]},
-    install_requires=["paramiko", "requests", "svglib"],
+    install_requires=["paramiko", "requests", "svglib", "reportlab"],
 )

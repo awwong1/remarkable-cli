@@ -8,19 +8,24 @@ import re
 import xml.etree.ElementTree as ET
 from io import BufferedReader
 from struct import calcsize, unpack_from
+from tempfile import TemporaryFile
+
+from reportlab.graphics import renderPDF
+from reportlab.pdfgen.canvas import Canvas
+from svglib.svglib import svg2rlg
 
 from .pens import (
-    Pen,
     Ballpoint,
-    Fineliner,
-    Marker,
-    Pencil,
-    MechanicalPencil,
     Brush,
-    Highlighter,
     Calligraphy,
     EraseArea,
     Eraser,
+    Fineliner,
+    Highlighter,
+    Marker,
+    MechanicalPencil,
+    Pen,
+    Pencil,
 )
 
 
@@ -31,10 +36,39 @@ class ConvertRM:
     Y_SIZE = 1872
 
     STROKE_COLOUR = {
-        0: "black",
-        1: "gray",
-        2: "white",
+        0: "#000000",
+        1: "#c7c7c7",
+        2: "#ffffff",
     }
+
+    @staticmethod
+    def _blank_template():
+        svg_root = ET.Element(
+            "svg",
+            {
+                "xmlns": "http://www.w3.org/2000/svg",
+                "xmlns:xlink": "http://www.w3.org/1999/xlink",
+                "version": "1.1",
+                "x": "0px",
+                "y": "0px",
+                "viewBox": f"0 0 {ConvertRM.X_SIZE} {ConvertRM.Y_SIZE}",
+            },
+        )
+        blank_layer = ET.Element("g", {"id": "Background"})
+        blank_layer.append(
+            ET.Element(
+                "rect",
+                {
+                    "x": "0",
+                    "y": "0",
+                    "width": f"{ConvertRM.X_SIZE}",
+                    "height": f"{ConvertRM.Y_SIZE}",
+                    "fill": "#FFFFFF",
+                },
+            )
+        )
+        svg_root.append(blank_layer)
+        return ET.ElementTree(svg_root)
 
     def __init__(
         self,
@@ -141,31 +175,40 @@ class ConvertRM:
                 for segment_idx in range(num_segments):
                     fmt = "<ffffff"
                     segment = unpack_from(fmt, fh.read(calcsize(fmt)))
-                    xpos, ypos, speed, tilt, width, pressure = segment
-                    line_points.append(f"{xpos},{ypos}")
+                    x_pos, y_pos, speed, tilt, width, pressure = segment
+                    pt = f"{x_pos},{y_pos}"
 
-                    if pen.segment_length > 0 and segment_idx % pen.segment_length == 0:
-                        attrs = pen.get_polyline_attributes(*segment[2:])
-                        attrs["points"] = " ".join(line_points)
-                        svg_polyline = ET.Element("polyline", attrs)
-                        svg_polyline.append(ET.Comment(f"segment: {segment}"))
-                        svg_layer.append(svg_polyline)
-                        line_points = [
-                            f"{xpos},{ypos}",
-                        ]
+                    if (line_points and line_points[-1] != pt) or not line_points:
+                        line_points.append(pt)
 
-                attrs = pen.get_polyline_attributes(*segment[2:])
+                    if pen.segment_length < 0 or segment_idx % pen.segment_length != 0:
+                        continue
+
+                    attrs = pen.get_polyline_attributes(speed, tilt, width, pressure)
+                    attrs["points"] = " ".join(line_points)
+                    svg_polyline = ET.Element("polyline", attrs)
+                    svg_layer.append(svg_polyline)
+                    line_points = [pt]
+
+                attrs = pen.get_polyline_attributes(speed, tilt, width, pressure)
                 attrs["points"] = " ".join(line_points)
                 svg_polyline = ET.Element("polyline", attrs)
-                svg_polyline.append(ET.Comment(f"Segment: {segment}"))
                 svg_layer.append(svg_polyline)
 
             svg_root.append(svg_layer)
         # self._log.debug(ET.tostring(svg_root))
         return template_tree
 
-    def convert_document(self):
-        # each page is its own svg element, a document can have multiple pages
+    def convert_document(
+        self, pdf_output_path: os.PathLike, creator="awwong1/remarkable-cli"
+    ):
+        pdf_output = Canvas(pdf_output_path)
+        title = self.metadata.get("visibleName", "Untitled")
+        pdf_output.setSubject(title)
+        title_ext = f"{title}{os.extsep}pdf"
+        pdf_output.setTitle(title_ext)
+        pdf_output.setCreator(creator)
+
         for idx, page_id in enumerate(self.page_ids):
             pg_rm_fp = os.path.join(self.pages_fp, f"{page_id}{os.extsep}rm")
             if not os.path.isfile(pg_rm_fp):
@@ -178,19 +221,8 @@ class ConvertRM:
             )
 
             ET.register_namespace("", "http://www.w3.org/2000/svg")
+            template_tree = ConvertRM._blank_template()
 
-            svg_root = ET.Element(
-                "svg",
-                {
-                    "xmlns": "http://www.w3.org/2000/svg",
-                    "xmlns:xlink": "http://www.w3.org/1999/xlink",
-                    "version": "1.1",
-                    "x": "0px",
-                    "y": "0px",
-                    "viewBox": f"0 0 {ConvertRM.X_SIZE} {ConvertRM.Y_SIZE}",
-                },
-            )
-            template_tree = ET.ElementTree(svg_root)
             if template_filename == "Blank":
                 self._log.debug("overriding Blank template with clean svg root")
             elif os.path.isfile(template_svg_fp):
@@ -203,17 +235,12 @@ class ConvertRM:
             with open(pg_rm_fp, "rb") as fh:
                 template_tree = self._convert_rm_to_svg(fh, template_tree)
 
-            os.makedirs(
-                os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)), "..", "tests", "dump"
-                ),
-                exist_ok=True,
-            )
-            svg_test_fp = os.path.join(
-                os.path.dirname(os.path.realpath(__file__)),
-                "..",
-                "tests",
-                "dump",
-                f"{page_id}{os.extsep}svg",
-            )
-            template_tree.write(svg_test_fp)
+            with TemporaryFile(mode="w+b") as tf:
+                template_tree.write(tf)
+                tf.seek(0)
+                drawing = svg2rlg(tf)
+                pdf_output.setPageSize((drawing.width, drawing.height))
+            renderPDF.draw(drawing, pdf_output, 0, 0)
+            pdf_output.showPage()
+
+        pdf_output.save()

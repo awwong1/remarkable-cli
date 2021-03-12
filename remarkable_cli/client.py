@@ -28,6 +28,7 @@ class Client:
 
         # create the backup directory if not exists
         os.makedirs(self.args.backup_dir, exist_ok=True)
+        self.backup_dir = self.args.backup_dir
         self.raw_backup_dir = os.path.join(self.args.backup_dir, ".raw")
         self.templates_dir = os.path.join(self.args.backup_dir, "templates")
         self.pdf_backup_dir = os.path.join(self.args.backup_dir, "My files")
@@ -106,6 +107,7 @@ class Client:
                 self._log.warning("unknown action: %s", action)
 
         self.close()
+        self._log.info("actions completed, see %s", self.backup_dir)
 
     def connect(self):
         """Connect to the reMarkable tablet using Paramiko SSH"""
@@ -312,9 +314,40 @@ class Client:
         )
 
     def convert_xochitl_files(self):
+        os.makedirs(self.pdf_backup_dir, exist_ok=True)
+        os.makedirs(self.trash_backup_dir, exist_ok=True)
+
+        metadata = self._derive_metadata()
         meta_fps = glob(os.path.join(self.raw_backup_dir, "*.metadata"))
         for meta_fp in meta_fps:
             uuid_fp = os.path.splitext(meta_fp)[0]
-            if os.path.isdir(uuid_fp):
-                converter = ConvertRM(uuid_fp, self.templates_dir, logger=self._log)
-                converter.convert_document()
+            if not os.path.isdir(uuid_fp):
+                self._log.debug("skipping %s", meta_fp)
+                continue
+            meta_id = os.path.basename(uuid_fp)
+            meta = metadata[meta_id]
+
+            path, is_trash = Client._get_path(meta_id, metadata)
+            local_dir = self.trash_backup_dir if is_trash else self.pdf_backup_dir
+            rel_fp = f"{path}{os.path.extsep}pdf"
+            path = os.path.join(local_dir, rel_fp)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+            # if local file exists and has up-to-date modified time, ignore
+            last_modified = int(meta.get("lastModified", "0"))
+            if os.path.isfile(path):
+                local_stat = os.stat(path)
+                if local_stat.st_mtime >= last_modified:
+                    self._log.debug("skipping %s", rel_fp)
+                    continue
+
+            converter = ConvertRM(uuid_fp, self.templates_dir, logger=self._log)
+
+            disp_fp = (
+                os.path.join("trash", rel_fp)
+                if is_trash
+                else os.path.join("My files", rel_fp)
+            )
+            self._log.info("rendering %s", disp_fp)
+            converter.convert_document(path)
+            os.utime(path, (last_modified, last_modified))

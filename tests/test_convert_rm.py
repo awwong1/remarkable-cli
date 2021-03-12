@@ -38,5 +38,8 @@ class TestConvertRM(unittest.TestCase):
         self.assertIsInstance(self.converter, ConvertRM)
 
     def test_convert_document(self):
-        self.converter.convert_document()
+        pdf_output_path = os.path.join(
+            DIR_PATH, "data", "version-5", "Sample Pens Generated.pdf"
+        )
+        self.converter.convert_document(pdf_output_path)
         self.assertTrue(True)

@@ -1,27 +1,27 @@
 from .pen import (
-    Pen,
     Ballpoint,
-    Fineliner,
-    Marker,
-    Pencil,
-    MechanicalPencil,
     Brush,
-    Highlighter,
     Calligraphy,
     EraseArea,
-    Eraser
+    Eraser,
+    Fineliner,
+    Highlighter,
+    Marker,
+    MechanicalPencil,
+    Pen,
+    Pencil,
 )
 
 __all__ = [
-    "Pen",
     "Ballpoint",
-    "Fineliner",
-    "Marker",
-    "Pencil",
-    "MechanicalPencil",
     "Brush",
-    "Highlighter",
     "Calligraphy",
     "EraseArea",
-    "Eraser"
+    "Eraser",
+    "Fineliner",
+    "Highlighter",
+    "Marker",
+    "MechanicalPencil",
+    "Pen",
+    "Pencil",
 ]
