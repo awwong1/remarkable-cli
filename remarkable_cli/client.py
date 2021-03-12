@@ -19,11 +19,15 @@ class Client:
 
     def __init__(self, args: Namespace):
         log_format = "%(asctime)s [%(levelname)s]: %(message)s"
-        log_level = Client.LOG_LEVELS[min(args.log_level, len(Client.LOG_LEVELS) - 1)]
+        if args.log_level is None:
+            args.log_level = 3
+        log_index = min(max(0, args.log_level), len(Client.LOG_LEVELS) - 1)
+        log_level = Client.LOG_LEVELS[log_index]
         logging.basicConfig(format=log_format, level=logging.getLevelName(log_level))
 
         self._log = logging.getLogger(__name__)
         self.args = args
+        self._log.debug(args)
         self.ssh_client = None
 
         # create the backup directory if not exists

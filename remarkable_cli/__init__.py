@@ -24,7 +24,7 @@ def main():
         dest="log_level",
         action="count",
         help="logging verbosity level",
-        default=3,
+        default=None,
     )
     parser.add_argument(
         "-a",
