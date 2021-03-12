@@ -32,7 +32,7 @@ def main():
         help="backup actions to perform on reMarkable tablet",
         action="append",
         type=str,
-        choices=["push", "pull", "pull-raw", "pull-web", "clean-local"],
+        choices=["push", "pull", "pull-raw", "pull-web", "convert-raw", "clean-local"],
     )
 
     device_group = parser.add_argument_group("reMarkable device")
@@ -69,6 +69,13 @@ def main():
         type=str,
         help="reMarkable directory containing xochitl files",
         default="/home/root/.local/share/remarkable/xochitl/"
+    )
+    device_group.add_argument(
+        "-t",
+        "--templates-path",
+        type=str,
+        help="reMarkable directory containing templates",
+        default="/usr/share/remarkable/templates/"
     )
 
     local_group = parser.add_argument_group("local")

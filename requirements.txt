@@ -1,3 +1,6 @@
 black==20.8b1
 flake8==3.8.4
 paramiko==2.7.2
+reportlab==3.5.63
+requests==2.25.1
+svglib==1.0.1
