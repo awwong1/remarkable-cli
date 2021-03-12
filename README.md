@@ -5,21 +5,24 @@ An unofficial command line interface (CLI) for interacting with the Remarkable p
 Features:
 
 - [x] Backup reMarkable `xochitl` files directly to the local machine
+- [x] Convert `.rm` files into `.pdf` or `.svg`
 - [x] Backup reMarkable documents as `pdf` directly to the local machine
-- [] Convert `.rm` files into `.pdf` or `.svg`
-- [] Push files to reMarkable for annotation & reading
-- [] ...and more
+- [ ] Push files to reMarkable for annotation & reading
+- [ ] ...and more
 
 ## Getting Started
 
 ```bash
 pip install remarkable-cli
 
-# With INFO logging, clean the local backup directory before pulling raw xochitl and pdf files
-remarkable-cli -a clean-local -a pull
+# Pull raw xochitl files and render them into readable pdf
+remarkable-cli -a pull
 
-# with DEBUG logging, pull all the raw xochitl and pdf files
-remarkable-cli -vvvv -a pull
+# with DEBUG logging, clean the local backup directory before pulling all the raw xochitl files and rendering pdf
+remarkable-cli -vvvv -a clean-local -a pull
+
+# show the CLI usage/help
+remarkable-cli -h
 ```
 
 ## License
