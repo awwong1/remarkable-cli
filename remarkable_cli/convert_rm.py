@@ -135,22 +135,30 @@ class ConvertRM:
                     self._log.warning("unknown pen type %d", pen_idx)
                     pen = Pen()
 
+                svg_layer.append(ET.Comment(f"Stroke: {stroke_data}"))
+
                 line_points = []
-                # self._log.debug("stroke_data: %s", stroke_data)
                 for segment_idx in range(num_segments):
                     fmt = "<ffffff"
                     segment = unpack_from(fmt, fh.read(calcsize(fmt)))
                     xpos, ypos, speed, tilt, width, pressure = segment
                     line_points.append(f"{xpos},{ypos}")
 
+                    if pen.segment_length > 0 and segment_idx % pen.segment_length == 0:
+                        attrs = pen.get_polyline_attributes(*segment[2:])
+                        attrs["points"] = " ".join(line_points)
+                        svg_polyline = ET.Element("polyline", attrs)
+                        svg_polyline.append(ET.Comment(f"segment: {segment}"))
+                        svg_layer.append(svg_polyline)
+                        line_points = [
+                            f"{xpos},{ypos}",
+                        ]
+
                 attrs = pen.get_polyline_attributes(*segment[2:])
                 attrs["points"] = " ".join(line_points)
                 svg_polyline = ET.Element("polyline", attrs)
-                svg_polyline.append(ET.Comment(f"Stroke: {stroke_data}"))
+                svg_polyline.append(ET.Comment(f"Segment: {segment}"))
                 svg_layer.append(svg_polyline)
-                line_points = [
-                    f"{xpos},{ypos}",
-                ]
 
             svg_root.append(svg_layer)
         # self._log.debug(ET.tostring(svg_root))
