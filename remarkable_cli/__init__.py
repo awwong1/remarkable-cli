@@ -4,7 +4,7 @@ from os import path
 from .client import Client
 
 name = "remarkable-cli"
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 __all__ = ["main"]
 
 
