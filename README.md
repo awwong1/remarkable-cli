@@ -1,14 +1,21 @@
 # remarkable-cli
 
-An unofficial command line interface (CLI) for interacting with the Remarkable paper tablet.
+![PyPI](https://img.shields.io/pypi/v/remarkable-cli)
 
-Features:
+An unofficial command line interface (CLI) for interacting with the Remarkable paper tablet written in pure Python.
 
-- [x] Backup reMarkable `xochitl` files directly to the local machine
-- [x] Convert `.rm` files into `.pdf` or `.svg`
-- [x] Backup reMarkable documents as `pdf` directly to the local machine
-- [ ] Push files to reMarkable for annotation & reading
-- [ ] ...and more
+## Features
+
+* pull raw reMarkable `xochitl` files directly to the local machine
+* convert raw `.rm` payloads into readable `.pdf`
+* pull reMarkable web-interface `pdf` documents directly to the local machine
+
+### In the works
+
+* push/pull `pdf` files to reMarkable for annotation & reading
+* push/pull `epub` files to reMarkable for annotation & reading
+* live-share reMarkable screen to local machine
+* ... and more!
 
 ## Getting Started
 
