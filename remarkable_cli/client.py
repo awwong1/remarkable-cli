@@ -278,7 +278,7 @@ class Client:
                     os.makedirs(os.path.dirname(path), exist_ok=True)
 
                     # if local file exists and has up-to-date modified time, ignore
-                    last_modified = int(meta.get("lastModified", "0"))
+                    last_modified = int(meta.get("lastModified", "0")) / 1000
                     if os.path.isfile(path):
                         local_stat = os.stat(path)
                         if local_stat.st_mtime >= last_modified:
@@ -338,7 +338,7 @@ class Client:
             os.makedirs(os.path.dirname(path), exist_ok=True)
 
             # if local file exists and has up-to-date modified time, ignore
-            last_modified = int(meta.get("lastModified", "0"))
+            last_modified = int(meta.get("lastModified", "0")) / 1000
             if os.path.isfile(path):
                 local_stat = os.stat(path)
                 if local_stat.st_mtime >= last_modified:
