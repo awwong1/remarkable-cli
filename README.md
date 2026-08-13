@@ -1,3 +1,5 @@
+
+
 # remarkable-cli
 
 ![PyPI](https://img.shields.io/pypi/v/remarkable-cli)
@@ -27,6 +29,9 @@ remarkable-cli -a pull
 
 # with DEBUG logging, clean the local backup directory before pulling all the raw xochitl files and rendering pdf
 remarkable-cli -vvvv -a clean-local -a pull
+
+# Pull PDF documents directly via the web interface
+remarkable-cli -a pull-web
 
 # show the CLI usage/help
 remarkable-cli -h
